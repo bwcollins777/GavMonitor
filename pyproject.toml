@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nfd-unit-monitor"
+version = "1.0.0"
+description = "Monitor the Nashville Fire Department Active Incidents ArcGIS API and send email alerts for incidents involving EN41 or EN42."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "Brian Collins" }
+]
+keywords = [
+    "nashville",
+    "fire",
+    "arcgis",
+    "github-actions",
+    "monitoring",
+    "email"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+dependencies = [
+    "requests==2.32.5"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
