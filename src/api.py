@@ -135,7 +135,7 @@ if "features" not in payload:
     raise RuntimeError(
         "ArcGIS response does not contain 'features'."
     )
-                )
+               
 
             incidents = [
                 _normalize(feature)
