@@ -130,9 +130,11 @@ def fetch_incidents(
 
             payload = response.json()
 
-            if "features" not in payload:
-                raise RuntimeError(
-                    "ArcGIS response does not contain 'features'."
+if "features" not in payload:
+    log.error("ArcGIS response: %s", payload)
+    raise RuntimeError(
+        "ArcGIS response does not contain 'features'."
+    )
                 )
 
             incidents = [
