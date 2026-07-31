@@ -36,8 +36,10 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 #
 
 ARCGIS_QUERY_URL = (
-    "https://www.nashville.gov/arcgis/rest/services/"
-    "Fire/Active_Incidents/FeatureServer/0/query"
+    "https://services2.arcgis.com/HdTo6HJqh92wn4D8/"
+    "arcgis/rest/services/"
+    "NashvilleFireDepartmentActiveIncidents/"
+    "FeatureServer/0/query"
 )
 
 # ArcGIS query parameters
