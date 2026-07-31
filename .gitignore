@@ -29,7 +29,6 @@ logs/*.log
 !logs/.gitkeep
 
 # Local application state
-data/alerted_incidents.json
 
 # Environment files
 .env
