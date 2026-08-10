@@ -1,7 +1,8 @@
 """
-Application logging.
+Shared logging configuration for GavMonitor.
 
-Creates a logger that writes to both the console and a rotating log file.
+Creates a single application logger that writes to both the console
+(GitHub Actions log) and a rotating log file.
 """
 
 from __future__ import annotations
@@ -11,50 +12,89 @@ from logging.handlers import RotatingFileHandler
 
 from config import LOG_FILE, LOG_LEVEL
 
+_LOGGER_NAME = "gavmonitor"
 
-def get_logger(name: str = "nfd-monitor") -> logging.Logger:
+
+def get_logger(name: str | None = None) -> logging.Logger:
     """
-    Create and configure the application logger.
+    Return a configured logger.
 
-    Multiple calls return the same configured logger without adding duplicate
-    handlers.
+    The logger is configured only once, regardless of how many modules
+    import it.
 
-    Args:
-        name:
-            Logger name.
+    Parameters
+    ----------
+    name
+        Optional child logger name.
 
-    Returns:
-        Configured Logger instance.
+    Returns
+    -------
+    logging.Logger
     """
 
-    logger = logging.getLogger(name)
+    root_logger = logging.getLogger(_LOGGER_NAME)
 
-    if logger.handlers:
-        return logger
+    if not root_logger.handlers:
 
-    logger.setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
+        level = getattr(
+            logging,
+            LOG_LEVEL.upper(),
+            logging.INFO,
+        )
 
-    formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+        root_logger.setLevel(level)
 
-    # Log file (keeps the last five 1 MB log files)
-    file_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=1_048_576,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(formatter)
+        formatter = logging.Formatter(
+            fmt=(
+                "%(asctime)s | "
+                "%(levelname)-8s | "
+                "%(name)s | "
+                "%(message)s"
+            ),
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
-    # Console output (visible in GitHub Actions logs)
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
+        file_handler = RotatingFileHandler(
+            filename=LOG_FILE,
+            maxBytes=1_048_576,
+            backupCount=5,
+            encoding="utf-8",
+        )
 
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
 
-    logger.propagate = False
+        console_handler = logging.StreamHandler()
 
-    return logger
+        console_handler.setLevel(level)
+        console_handler.setFormatter(formatter)
+
+        root_logger.addHandler(file_handler)
+        root_logger.addHandler(console_handler)
+
+        root_logger.propagate = False
+
+    if name:
+        return root_logger.getChild(name)
+
+    return root_logger
+
+
+def log_startup(logger: logging.Logger) -> None:
+    """
+    Write a startup banner.
+    """
+
+    logger.info("=" * 72)
+    logger.info("GavMonitor starting.")
+    logger.info("=" * 72)
+
+
+def log_shutdown(logger: logging.Logger) -> None:
+    """
+    Write a shutdown banner.
+    """
+
+    logger.info("=" * 72)
+    logger.info("GavMonitor finished.")
+    logger.info("=" * 72)
