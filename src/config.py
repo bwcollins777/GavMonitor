@@ -1,8 +1,9 @@
 """
-Application configuration.
+Application configuration for GavMonitor.
 
-Loads environment variables, defines application constants,
-and validates required configuration.
+This module centralizes all configurable values, loads environment
+variables, validates required settings, and defines the verified
+Nashville Fire Department ArcGIS REST endpoint.
 """
 
 from __future__ import annotations
@@ -10,9 +11,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# Project paths
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Project Paths
+# ---------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -22,55 +23,59 @@ LOG_DIR = PROJECT_ROOT / "logs"
 STATE_FILE = DATA_DIR / "alerted_incidents.json"
 LOG_FILE = LOG_DIR / "monitor.log"
 
-# Ensure required directories exist
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # ArcGIS REST API
-# -----------------------------------------------------------------------------
-#
-# NOTE:
-# monitor.py and api.py should reference this constant instead of hard-coding
-# the endpoint anywhere else.
-#
+# ---------------------------------------------------------------------
 
 ARCGIS_QUERY_URL = (
-    "https://services2.arcgis.com/HdTo6HJqh92wn4D8/"
+    "https://services2.arcgis.com/"
+    "HdTo6HJqh92wn4D8/"
     "arcgis/rest/services/"
-    "NashvilleFireDepartmentActiveIncidents/"
+    "Nashville_Fire_Department_Active_Incidents_view/"
     "FeatureServer/0/query"
 )
 
-# ArcGIS query parameters
-REQUEST_TIMEOUT = 30
-MAX_RECORDS = 1000
+ACTIVE_INCIDENTS_PAGE = (
+    "https://www.nashville.gov/departments/fire/operations/"
+    "active-incidents"
+)
+
+# Request only verified fields.
+ARCGIS_FIELDS = [
+    "ObjectId",
+    "event_number",
+    "Unit_ID",
+    "incident_type_id",
+    "DispatchDateTime",
+]
 
 QUERY_PARAMETERS = {
     "where": "1=1",
-    "outFields": "*",
+    "outFields": ",".join(ARCGIS_FIELDS),
     "returnGeometry": "false",
     "f": "json",
 }
 
-# -----------------------------------------------------------------------------
-# Polling
-# -----------------------------------------------------------------------------
+REQUEST_TIMEOUT = 30
+MAX_RETRIES = 3
 
-POLL_INTERVAL_MINUTES = 5
-
-# -----------------------------------------------------------------------------
-# Unit monitoring
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Monitoring
+# ---------------------------------------------------------------------
 
 TARGET_UNITS = {
     "EN41",
     "EN42",
 }
 
-# -----------------------------------------------------------------------------
+POLL_INTERVAL_MINUTES = 5
+
+# ---------------------------------------------------------------------
 # SMTP
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -79,27 +84,28 @@ EMAIL_USERNAME = os.getenv("EMAIL_USERNAME", "").strip()
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "").strip()
 EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT", "").strip()
 
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Logging
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 
 LOG_LEVEL = "INFO"
 
-# -----------------------------------------------------------------------------
-# Validation
-# -----------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------------------
 
 
 def validate_configuration() -> None:
     """
-    Ensure required configuration exists before the application starts.
+    Validate required environment variables.
 
-    Raises:
-        RuntimeError
-            If one or more required environment variables are missing.
+    Raises
+    ------
+    RuntimeError
+        If one or more required environment variables are missing.
     """
 
-    missing = []
+    missing: list[str] = []
 
     if not EMAIL_USERNAME:
         missing.append("EMAIL_USERNAME")
