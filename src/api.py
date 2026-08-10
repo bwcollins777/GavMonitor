@@ -1,62 +1,48 @@
 """
-ArcGIS REST API client.
+ArcGIS REST API client for GavMonitor.
 
-Queries the Nashville Fire Department Active Incidents ArcGIS FeatureServer,
-normalizes the returned data, and handles transient failures gracefully.
+Downloads the current Nashville Fire Department active incidents,
+validates the ArcGIS response, retries transient failures, and returns
+normalized Incident objects.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import List
+from time import sleep
 
 import requests
 
 from config import (
+    ACTIVE_INCIDENTS_PAGE,
     ARCGIS_QUERY_URL,
+    MAX_RETRIES,
     QUERY_PARAMETERS,
     REQUEST_TIMEOUT,
 )
 from logger import get_logger
+from models import Incident
 
 log = get_logger(__name__)
 
 
-# Link included in notification emails
-ACTIVE_INCIDENTS_MAP = (
-    "https://www.nashville.gov/departments/fire/operations/"
-    "active-incidents"
-)
+class ArcGISAPIError(RuntimeError):
+    """Raised when the ArcGIS API returns an invalid response."""
 
 
-@dataclass(slots=True)
-class Incident:
+def _format_dispatch_time(value: object) -> str:
     """
-    Normalized incident returned by the ArcGIS API.
-    """
-
-    incident_number: str
-    dispatch_time: str
-    incident_type: str
-    address: str
-    units: str
-    incident_link: str
-
-
-def _format_dispatch_time(value) -> str:
-    """
-    Convert ArcGIS epoch milliseconds into a readable local timestamp.
-
-    If the value is invalid, return 'Unknown'.
+    Convert ArcGIS epoch milliseconds into a local time string.
     """
 
     if value in (None, "", 0):
         return "Unknown"
 
     try:
+        milliseconds = int(value)
+
         dt = datetime.fromtimestamp(
-            value / 1000,
+            milliseconds / 1000,
             tz=timezone.utc,
         ).astimezone()
 
@@ -71,71 +57,91 @@ def _normalize(feature: dict) -> Incident:
     Convert one ArcGIS feature into an Incident object.
     """
 
-    attrs = feature.get("attributes", {})
+    attributes = feature.get("attributes", {})
 
     return Incident(
         incident_number=str(
-            attrs.get("event_number") or ""
+            attributes.get("event_number") or ""
         ).strip(),
         dispatch_time=_format_dispatch_time(
-            attrs.get("DispatchDateTime")
+            attributes.get("DispatchDateTime")
         ),
         incident_type=str(
-            attrs.get("incident_type_id") or "Unknown"
+            attributes.get("incident_type_id") or "Unknown"
         ).strip(),
-        address="Not available from public ArcGIS feed",
+        address="Not available from the public ArcGIS feed",
         units=str(
-            attrs.get("Unit_ID") or ""
+            attributes.get("Unit_ID") or ""
         ).strip(),
-        incident_link=ACTIVE_INCIDENTS_MAP,
+        incident_link=ACTIVE_INCIDENTS_PAGE,
+        object_id=int(
+            attributes.get("ObjectId") or 0
+        ),
     )
 
 
-def fetch_incidents(
-    retries: int = 3,
-    timeout: int = REQUEST_TIMEOUT,
-) -> List[Incident]:
+def fetch_incidents() -> list[Incident]:
     """
-    Download active incidents.
+    Retrieve active incidents from the ArcGIS REST API.
 
-    Retries transient failures automatically.
+    Returns
+    -------
+    list[Incident]
 
-    Returns:
-        List[Incident]
-
-    Raises:
-        RuntimeError
-            If all retry attempts fail.
+    Raises
+    ------
+    ArcGISAPIError
+        If all retry attempts fail.
     """
 
-    last_error = None
+    last_error: Exception | None = None
 
-    for attempt in range(1, retries + 1):
+    for attempt in range(1, MAX_RETRIES + 1):
 
         try:
 
             log.info(
-                "Querying ArcGIS API (attempt %d/%d)...",
+                "Querying ArcGIS API (attempt %d of %d)...",
                 attempt,
-                retries,
+                MAX_RETRIES,
             )
 
             response = requests.get(
                 ARCGIS_QUERY_URL,
                 params=QUERY_PARAMETERS,
-                timeout=timeout,
+                timeout=REQUEST_TIMEOUT,
+            )
+
+            log.info(
+                "ArcGIS HTTP status: %s",
+                response.status_code,
             )
 
             response.raise_for_status()
 
             payload = response.json()
 
-if "features" not in payload:
-    log.error("ArcGIS response: %s", payload)
-    raise RuntimeError(
-        "ArcGIS response does not contain 'features'."
-    )
-               
+            if "error" in payload:
+                log.error(
+                    "ArcGIS returned an error: %s",
+                    payload["error"],
+                )
+                raise ArcGISAPIError(
+                    payload["error"].get(
+                        "message",
+                        "Unknown ArcGIS error.",
+                    )
+                )
+
+            if "features" not in payload:
+                log.error(
+                    "Unexpected ArcGIS response: %s",
+                    payload,
+                )
+                raise ArcGISAPIError(
+                    "ArcGIS response did not contain "
+                    "'features'."
+                )
 
             incidents = [
                 _normalize(feature)
@@ -143,40 +149,45 @@ if "features" not in payload:
             ]
 
             log.info(
-                "Retrieved %d active incident(s).",
+                "Retrieved %d incident(s).",
                 len(incidents),
             )
 
             return incidents
 
-        except requests.Timeout as exc:
-            last_error = exc
-            log.warning(
-                "ArcGIS request timed out."
-            )
+        except (
+            requests.Timeout,
+            requests.ConnectionError,
+        ) as exc:
 
-        except requests.ConnectionError as exc:
             last_error = exc
+
             log.warning(
-                "Unable to connect to ArcGIS service."
+                "Temporary network error: %s",
+                exc,
             )
 
         except requests.HTTPError as exc:
+
             last_error = exc
+
             log.warning(
-                "ArcGIS returned HTTP %s.",
-                exc.response.status_code
-                if exc.response
-                else "Unknown",
+                "HTTP error: %s",
+                exc,
             )
 
         except Exception as exc:
+
             last_error = exc
+
             log.exception(
-                "Unexpected ArcGIS error."
+                "ArcGIS query failed."
             )
 
-    raise RuntimeError(
-        f"Unable to retrieve incidents after "
-        f"{retries} attempts."
+        if attempt < MAX_RETRIES:
+            sleep(2)
+
+    raise ArcGISAPIError(
+        "Unable to retrieve active incidents "
+        f"after {MAX_RETRIES} attempts."
     ) from last_error
