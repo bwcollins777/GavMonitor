@@ -1,150 +1,191 @@
 """
-Main application entry point.
-
-Monitors the Nashville Fire Department Active Incidents ArcGIS API for
-new incidents involving EN41 or EN42.
+Main application entry point for GavMonitor.
 
 Workflow
 
 1. Validate configuration
 2. Download active incidents
-3. Remove old incidents from state
-4. Find incidents containing monitored units
-5. Send notification for new incidents only
-6. Record sent notifications
+3. Remove inactive incidents from state
+4. Find incidents involving EN41 or EN42
+5. Send notifications for new incidents
+6. Save updated state
 """
 
 from __future__ import annotations
 
 import sys
 
-from api import fetch_incidents
+from api import ArcGISAPIError, fetch_incidents
 from config import TARGET_UNITS, validate_configuration
 from emailer import send_email
-from logger import get_logger
+from logger import get_logger, log_shutdown, log_startup
+from models import Incident
 from state import AlertState
 
 log = get_logger(__name__)
 
 
-def incident_contains_target_unit(units: str) -> bool:
+def contains_monitored_unit(incident: Incident) -> bool:
     """
-    Returns True if any monitored unit appears in the Unit_ID field.
-
-    The ArcGIS feed stores units as a comma-separated string.
-    Matching is performed case-insensitively and ignores whitespace.
+    Returns True if the incident contains one of the monitored units.
     """
 
-    if not units:
+    return any(
+        unit in TARGET_UNITS
+        for unit in incident.unit_list
+    )
+
+
+def process_incident(
+    incident: Incident,
+    state: AlertState,
+) -> bool:
+    """
+    Process a single incident.
+
+    Returns True if an email was sent.
+    """
+
+    if not contains_monitored_unit(incident):
         return False
 
-    parsed_units = {
-        unit.strip().upper()
-        for unit in units.split(",")
-        if unit.strip()
-    }
+    log.info(
+        "Matched monitored incident: %s | Units: %s",
+        incident.incident_number,
+        incident.units,
+    )
 
-    return bool(parsed_units & TARGET_UNITS)
+    if state.has_alerted(incident.incident_number):
+
+        log.info(
+            "Incident %s already alerted.",
+            incident.incident_number,
+        )
+
+        return False
+
+    send_email(incident)
+
+    state.mark_alerted(
+        incident.incident_number,
+    )
+
+    return True
 
 
 def main() -> int:
     """
-    Main monitoring routine.
+    Main application entry point.
 
     Returns
     -------
     int
-        Exit code.
+        Process exit code.
     """
 
     try:
         validate_configuration()
 
     except Exception as exc:
-        log.exception("Configuration error: %s", exc)
+
+        log.exception(
+            "Configuration error: %s",
+            exc,
+        )
+
         return 1
 
-    log.info("=" * 70)
-    log.info("NFD Unit Monitor starting.")
+    log_startup(log)
 
     state = AlertState()
 
     try:
+
         incidents = fetch_incidents()
 
-    except Exception as exc:
+    except ArcGISAPIError as exc:
+
         log.exception(
-            "Unable to retrieve incident feed: %s",
+            "ArcGIS query failed: %s",
             exc,
         )
+
+        log_shutdown(log)
+
         return 2
 
-    active_incident_numbers = {
+    except Exception as exc:
+
+        log.exception(
+            "Unexpected application error: %s",
+            exc,
+        )
+
+        log_shutdown(log)
+
+        return 3
+
+    active_incidents = {
         incident.incident_number
         for incident in incidents
         if incident.incident_number
     }
 
-    state.purge_missing(active_incident_numbers)
+    state.purge_inactive(active_incidents)
 
-    monitored_count = 0
-    emailed_count = 0
+    emails_sent = 0
+    monitored = 0
 
     for incident in incidents:
 
-        if not incident.incident_number:
-            continue
-
-        if not incident_contains_target_unit(
-            incident.units
+        if not contains_monitored_unit(
+            incident,
         ):
             continue
 
-        monitored_count += 1
-
-        log.info(
-            "Matched monitored unit(s): %s | %s",
-            incident.incident_number,
-            incident.units,
-        )
-
-        if state.has_alerted(
-            incident.incident_number
-        ):
-            log.info(
-                "Incident %s already alerted.",
-                incident.incident_number,
-            )
-            continue
+        monitored += 1
 
         try:
 
-            send_email(incident)
-
-            state.mark_alerted(
-                incident.incident_number
-            )
-
-            emailed_count += 1
+            if process_incident(
+                incident,
+                state,
+            ):
+                emails_sent += 1
 
         except Exception as exc:
+
             log.exception(
-                "Failed sending email for %s: %s",
+                "Unable to process incident %s: %s",
                 incident.incident_number,
                 exc,
             )
 
     log.info(
-        "Scan complete. "
-        "Matched=%d  "
-        "Emails Sent=%d  "
-        "Active=%d",
-        monitored_count,
-        emailed_count,
+        "Run Summary"
+    )
+
+    log.info(
+        "Active Incidents : %d",
         len(incidents),
     )
 
-    log.info("Monitor completed successfully.")
+    log.info(
+        "Matching Incidents : %d",
+        monitored,
+    )
+
+    log.info(
+        "Emails Sent : %d",
+        emails_sent,
+    )
+
+    log.info(
+        "Tracked Incidents : %d",
+        len(state),
+    )
+
+    log_shutdown(log)
 
     return 0
 
