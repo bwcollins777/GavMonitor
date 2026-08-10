@@ -1,9 +1,12 @@
 """
-HTML email delivery for NFD Unit Monitor.
+Email delivery for GavMonitor.
+
+Builds and sends professional HTML email notifications using Gmail SMTP.
 """
 
 from __future__ import annotations
 
+import html
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -16,9 +19,17 @@ from config import (
     SMTP_SERVER,
 )
 from logger import get_logger
-from api import Incident
+from models import Incident
 
 log = get_logger(__name__)
+
+
+def _escape(value: str) -> str:
+    """
+    HTML-escape a string.
+    """
+
+    return html.escape(value or "")
 
 
 def _build_html(incident: Incident) -> str:
@@ -31,70 +42,74 @@ def _build_html(incident: Incident) -> str:
 <html>
 <head>
 <meta charset="utf-8">
+
 <style>
+
 body {{
     font-family: Arial, Helvetica, sans-serif;
-    background:#f5f5f5;
-    margin:0;
-    padding:25px;
+    background-color: #f4f4f4;
+    margin: 0;
+    padding: 24px;
 }}
 
 .container {{
-    max-width:700px;
-    margin:auto;
-    background:white;
-    border-radius:8px;
-    border:1px solid #dddddd;
-    overflow:hidden;
+    max-width: 720px;
+    margin: auto;
+    background: white;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #dddddd;
 }}
 
 .header {{
-    background:#b71c1c;
-    color:white;
-    padding:18px;
+    background: #b71c1c;
+    color: white;
+    padding: 18px;
 }}
 
 .header h2 {{
-    margin:0;
+    margin: 0;
 }}
 
 .content {{
-    padding:20px;
+    padding: 20px;
 }}
 
 table {{
-    border-collapse:collapse;
-    width:100%;
+    width: 100%;
+    border-collapse: collapse;
 }}
 
 td {{
-    padding:10px;
-    border-bottom:1px solid #eeeeee;
+    padding: 10px;
+    border-bottom: 1px solid #ececec;
 }}
 
 .label {{
-    width:180px;
-    font-weight:bold;
-    background:#fafafa;
-}}
-
-.footer {{
-    padding:18px;
-    font-size:12px;
-    color:#777777;
-    background:#fafafa;
+    width: 180px;
+    font-weight: bold;
+    background: #fafafa;
 }}
 
 .button {{
-    display:inline-block;
-    margin-top:18px;
-    padding:12px 18px;
-    background:#b71c1c;
-    color:white;
-    text-decoration:none;
-    border-radius:4px;
+    display: inline-block;
+    margin-top: 20px;
+    padding: 12px 18px;
+    background: #b71c1c;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
 }}
+
+.footer {{
+    padding: 18px;
+    font-size: 12px;
+    color: #666666;
+    background: #fafafa;
+}}
+
 </style>
+
 </head>
 
 <body>
@@ -102,7 +117,7 @@ td {{
 <div class="container">
 
 <div class="header">
-<h2>Nashville Fire Department Alert</h2>
+<h2>🚒 Nashville Fire Department Alert</h2>
 </div>
 
 <div class="content">
@@ -115,27 +130,27 @@ A monitored unit has been dispatched on a <strong>new incident</strong>.
 
 <tr>
 <td class="label">Incident Number</td>
-<td>{incident.incident_number}</td>
+<td>{_escape(incident.incident_number)}</td>
 </tr>
 
 <tr>
 <td class="label">Dispatch Time</td>
-<td>{incident.dispatch_time}</td>
+<td>{_escape(incident.dispatch_time)}</td>
 </tr>
 
 <tr>
 <td class="label">Incident Type</td>
-<td>{incident.incident_type}</td>
+<td>{_escape(incident.incident_type)}</td>
 </tr>
 
 <tr>
 <td class="label">Address</td>
-<td>{incident.address}</td>
+<td>{_escape(incident.address)}</td>
 </tr>
 
 <tr>
 <td class="label">Units Dispatched</td>
-<td>{incident.units}</td>
+<td>{_escape(incident.units)}</td>
 </tr>
 
 </table>
@@ -148,8 +163,7 @@ View Active Incidents
 </div>
 
 <div class="footer">
-Generated automatically by the
-<strong>NFD Unit Monitor</strong>.
+Generated automatically by GavMonitor.
 </div>
 
 </div>
@@ -161,7 +175,7 @@ Generated automatically by the
 
 def _build_text(incident: Incident) -> str:
     """
-    Plain-text version for mail clients that do not render HTML.
+    Plain-text fallback for mail clients that do not render HTML.
     """
 
     return f"""\
@@ -181,38 +195,39 @@ Incident Type:
 Address:
 {incident.address}
 
-Units:
+Units Dispatched:
 {incident.units}
 
-Active Incidents:
+View Active Incidents:
 {incident.incident_link}
 """
 
 
 def send_email(incident: Incident) -> None:
     """
-    Send an HTML notification email.
+    Send an email notification.
 
-    Raises:
-        smtplib.SMTPException
-            If delivery fails.
+    Raises
+    ------
+    smtplib.SMTPException
+        If delivery fails.
     """
 
     log.info(
-        "Sending notification for incident %s",
+        "Sending email for incident %s.",
         incident.incident_number,
     )
 
     message = EmailMessage()
 
-    message["Subject"] = (
-        f"NFD Alert - {incident.incident_number}"
-    )
-
+    message["Subject"] = incident.email_subject
     message["From"] = EMAIL_USERNAME
     message["To"] = EMAIL_RECIPIENT
 
-    message.set_content(_build_text(incident))
+    message.set_content(
+        _build_text(incident)
+    )
+
     message.add_alternative(
         _build_html(incident),
         subtype="html",
@@ -234,5 +249,6 @@ def send_email(incident: Incident) -> None:
         smtp.send_message(message)
 
     log.info(
-        "Notification email sent successfully."
+        "Email successfully sent for incident %s.",
+        incident.incident_number,
     )
