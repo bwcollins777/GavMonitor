@@ -1,18 +1,43 @@
 """
-Nashville Fire Department Unit Monitor
+GavMonitor
 
-Monitors the Nashville Fire Department Active Incidents ArcGIS REST API
-and sends email notifications when a new incident includes EN41 or EN42.
+A production-quality cloud application that monitors the Nashville Fire
+Department Active Incidents ArcGIS REST API for new incidents involving
+specified apparatus and sends HTML email notifications.
 
-Modules:
-    api.py        - ArcGIS REST API client
-    config.py     - Environment configuration
-    emailer.py    - HTML email delivery
-    logger.py     - Logging configuration
-    monitor.py    - Main application entry point
-    state.py      - Duplicate alert tracking
+Package Modules
+---------------
+api.py
+    ArcGIS REST API client.
+
+config.py
+    Application configuration and constants.
+
+emailer.py
+    Gmail SMTP email delivery.
+
+logger.py
+    Shared logging configuration.
+
+models.py
+    Application data models.
+
+monitor.py
+    Main application entry point.
+
+state.py
+    Persistent duplicate-alert state management.
 """
 
-__version__ = "1.0.0"
+from __future__ import annotations
+
+__title__ = "GavMonitor"
+__version__ = "2.0.0"
 __author__ = "Brian Collins"
 __license__ = "MIT"
+
+VERSION = __version__
+
+__all__ = [
+    "VERSION",
+]
